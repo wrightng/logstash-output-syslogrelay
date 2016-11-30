@@ -5,54 +5,19 @@ require "date"
 require "logstash/codecs/plain"
 
 
-# Send events to a syslog server.
+# Relays events to a syslog server.
 #
-# You can send messages compliant with RFC3164 or RFC5424
-# using either UDP or TCP as the transport protocol.
+# You can relay messages using either UDP or 
+# TCP with ot without SSL as the transport protocol.
 #
 # By default the contents of the `message` field will be shipped as
 # the free-form message text part of the emitted syslog message. If
 # your messages don't have a `message` field or if you for some other
 # reason want to change the emitted message, modify the `message`
 # configuration option.
-class LogStash::Outputs::Syslog < LogStash::Outputs::Base
-  config_name "syslog"
+class LogStash::Outputs::Syslogrelay < LogStash::Outputs::Base
+  config_name "syslogrelay"
 
-  FACILITY_LABELS = [
-    "kernel",
-    "user-level",
-    "mail",
-    "daemon",
-    "security/authorization",
-    "syslogd",
-    "line printer",
-    "network news",
-    "uucp",
-    "clock",
-    "ftp",
-    "ntp",
-    "log audit",
-    "log alert",
-    "local0",
-    "local1",
-    "local2",
-    "local3",
-    "local4",
-    "local5",
-    "local6",
-    "local7",
-  ]
-
-  SEVERITY_LABELS = [
-    "emergency",
-    "alert",
-    "critical",
-    "error",
-    "warning",
-    "notice",
-    "informational",
-    "debug",
-  ]
 
   # syslog server address to connect to
   config :host, :validate => :string, :required => true
@@ -81,49 +46,9 @@ class LogStash::Outputs::Syslog < LogStash::Outputs::Base
   # SSL key passphrase
   config :ssl_key_passphrase, :validate => :password, :default => nil
 
-  # use label parsing for severity and facility levels
-  # use priority field if set to false
-  config :use_labels, :validate => :boolean, :default => true
-
-  # syslog priority
-  # The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :priority, :validate => :string, :default => "%{syslog_pri}"
-
-  # facility label for syslog message
-  # default fallback to user-level as in rfc3164
-  # The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :facility, :validate => :string, :default => "user-level"
-
-  # severity label for syslog message
-  # default fallback to notice as in rfc3164
-  # The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :severity, :validate => :string, :default => "notice"
-
-  # source host for syslog message. The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :sourcehost, :validate => :string, :default => "%{host}"
-
-  # application name for syslog message. The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :appname, :validate => :string, :default => "LOGSTASH"
-
-  # process id for syslog message. The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :procid, :validate => :string, :default => "-"
-
   # message text to log. The new value can include `%{foo}` strings
   # to help you build a new value from other parts of the event.
   config :message, :validate => :string, :default => "%{message}"
-
-  # message id for syslog message. The new value can include `%{foo}` strings
-  # to help you build a new value from other parts of the event.
-  config :msgid, :validate => :string, :default => "-"
-
-  # syslog message format: you can choose between rfc3164 or rfc5424
-  config :rfc, :validate => ["rfc3164", "rfc5424", "relay"], :default => "relay"
 
   def register
     @client_socket = nil
@@ -139,8 +64,6 @@ class LogStash::Outputs::Syslog < LogStash::Outputs::Base
     end
     @codec.on_event(&method(:publish))
 
-    # use instance variable to avoid string comparison for each event
-    @is_rfc3164 = (@rfc == "rfc3164")
   end
 
   def receive(event)
@@ -148,32 +71,10 @@ class LogStash::Outputs::Syslog < LogStash::Outputs::Base
   end
 
   def publish(event, payload)
-    appname = event.sprintf(@appname)
-    procid = event.sprintf(@procid)
-    sourcehost = event.sprintf(@sourcehost)
 
     message = payload.to_s.rstrip.gsub(/[\r][\n]/, "\n").gsub(/[\n]/, '\n')
 
-    # fallback to pri 13 (facility 1, severity 5)
-    if @use_labels
-      facility_code = (FACILITY_LABELS.index(event.sprintf(@facility)) || 1)
-      severity_code = (SEVERITY_LABELS.index(event.sprintf(@severity)) || 5)
-      priority = (facility_code * 8) + severity_code
-    else
-      priority = Integer(event.sprintf(@priority)) rescue 13
-      priority = 13 if (priority < 0 || priority > 191)
-    end
-
-    if @is_rfc3164
-      timestamp = event.sprintf("%{+MMM dd HH:mm:ss}")
-      syslog_msg = "<#{priority.to_s}>#{timestamp} #{sourcehost} #{appname}[#{procid}]: #{message}"
-    elsif
-      syslog_msg = "#{message}"
-    else
-      msgid = event.sprintf(@msgid)
-      timestamp = event.sprintf("%{+YYYY-MM-dd'T'HH:mm:ss.SSSZZ}")
-      syslog_msg = "<#{priority.to_s}>1 #{timestamp} #{sourcehost} #{appname} #{procid} #{msgid} - #{message}"
-    end
+    syslog_msg = "#{message}"
 
     begin
       @client_socket ||= connect
